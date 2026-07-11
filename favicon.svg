@@ -1,0 +1,124 @@
+# Shelfie — AI-Powered E-commerce App
+
+A production-ready e-commerce web application built with **React (Vite) + TypeScript**,
+**Tailwind CSS**, **shadcn/ui**, **Supabase**, and **Groq AI**.
+
+## Features
+
+- 🛍️ Conversion-focused landing page, product catalog, cart, and checkout
+- 🔐 Supabase Auth (email/password + Google/GitHub OAuth), password reset flow
+- 🛡️ Role-based protected routes (public / user / admin) via React Router
+- 🗄️ Full CRUD product management backed by Postgres + Row Level Security
+- 🤖 Floating AI shopping assistant powered by Groq (llama-3.1-8b-instant)
+- 📷 Groq Vision-powered "search by photo" in the shop page
+- ✉️ Transactional welcome + order confirmation emails via Resend + Supabase Edge Functions
+- 📊 Admin analytics dashboard with Recharts (revenue trend, category sales, order status)
+- 🌗 Light/dark mode, fully responsive, accessible components
+
+## Tech stack
+
+| Layer      | Choice                                         |
+|------------|-------------------------------------------------|
+| Frontend   | React 18, Vite, TypeScript, Tailwind CSS, shadcn/ui |
+| State      | Zustand (cart + auth)                          |
+| Backend    | Supabase (Postgres, Auth, Storage, Edge Functions) |
+| AI         | Groq AI (chat) + Groq Vision (image search)    |
+| Email      | Resend                                          |
+| Charts     | Recharts                                        |
+
+## Getting started
+
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Set up Supabase
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. In the SQL Editor, run `supabase/schema.sql` — it creates the `profiles`,
+   `products`, `orders`, and `order_items` tables, RLS policies, the
+   `product-images` storage bucket, and a trigger that auto-creates a profile
+   row on signup.
+3. In **Authentication → Providers**, enable Google and GitHub if you want
+   OAuth sign-in, and add your site URL to the allowed redirect URLs.
+4. Promote yourself to admin:
+   ```sql
+   update public.profiles set role = 'admin' where email = 'you@example.com';
+   ```
+
+### 3. Configure environment variables
+
+```bash
+cp .env.example .env
+```
+
+Fill in:
+- `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` — from Supabase project settings
+- `VITE_GROQ_API_KEY` — from [console.groq.com](https://console.groq.com) (client-side fallback)
+
+### 4. Deploy Edge Functions (recommended — keeps API keys server-side)
+
+```bash
+supabase login
+supabase link --project-ref your-project-ref
+supabase secrets set GROQ_API_KEY=your-groq-key
+supabase secrets set RESEND_API_KEY=your-resend-key
+supabase secrets set RESEND_FROM_EMAIL="Shelfie <orders@yourdomain.com>"
+supabase functions deploy ai-chat
+supabase functions deploy vision-search
+supabase functions deploy send-welcome-email
+supabase functions deploy send-order-email
+```
+
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` are auto-injected into edge functions — no need to set them manually.
+
+If functions aren't deployed yet, the app falls back to calling Groq directly
+from the browser using `VITE_GROQ_API_KEY` (fine for local dev, not recommended for production).
+
+### 5. Run locally
+
+```bash
+npm run dev
+```
+
+Visit `http://localhost:5173`.
+
+### 6. Build for production
+
+```bash
+npm run build
+npm run preview
+```
+
+## Deploying
+
+This is a static Vite build — deploy `dist/` to **Vercel** or **Netlify** with
+the same environment variables set in your hosting provider's dashboard.
+
+## Folder structure
+
+```
+src/
+├── components/
+│   ├── admin/      # Product form, analytics charts
+│   ├── ai/         # Chat assistant, vision search
+│   ├── layout/     # Navbar, Footer, AppLayout, ThemeProvider
+│   ├── shared/     # ProductCard, ProtectedRoute, AdminRoute, ThemeToggle
+│   └── ui/         # shadcn/ui primitives
+├── hooks/          # useAuth, useProducts
+├── lib/            # Supabase client, Groq client, utils
+├── pages/          # Route-level pages
+├── store/          # Zustand stores (auth, cart)
+├── App.tsx
+└── main.tsx
+
+supabase/
+├── schema.sql              # Full DB schema + RLS + storage bucket
+└── functions/
+    ├── ai-chat/             # Groq chat proxy
+    ├── vision-search/       # Groq Vision proxy
+    ├── send-welcome-email/  # Resend welcome email
+    └── send-order-email/    # Resend order confirmation email
+```

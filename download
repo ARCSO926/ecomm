@@ -1,0 +1,116 @@
+// Supabase Edge Function: send-order-email
+// Sends an HTML order confirmation email via Resend after checkout.
+// Deploy: supabase functions deploy send-order-email
+// Secrets: supabase secrets set RESEND_API_KEY=xxx RESEND_FROM_EMAIL="Shelfie <orders@yourdomain.com>"
+
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+type OrderItemPayload = { name: string; quantity: number; price: number };
+
+function formatINR(amount: number) {
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(amount);
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  try {
+    const { email, name, orderId, items, total } = (await req.json()) as {
+      email: string;
+      name: string;
+      orderId: string;
+      items: OrderItemPayload[];
+      total: number;
+    };
+
+    const resendApiKey = Deno.env.get("RESEND_API_KEY");
+    const fromEmail = Deno.env.get("RESEND_FROM_EMAIL") ?? "Shelfie <orders@resend.dev>";
+
+    if (!resendApiKey) {
+      return new Response(JSON.stringify({ error: "RESEND_API_KEY is not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const itemRows = items
+      .map(
+        (item) => `
+        <tr>
+          <td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 14px;">${item.name}</td>
+          <td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 14px; text-align:center;">${item.quantity}</td>
+          <td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 14px; text-align:right;">${formatINR(item.price * item.quantity)}</td>
+        </tr>`
+      )
+      .join("");
+
+    const html = `
+      <div style="font-family: Inter, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; color: #1c1917;">
+        <div style="width: 40px; height: 40px; background: #0f7a4f; border-radius: 8px; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px;">S</div>
+        <h1 style="font-size: 22px; margin-top: 24px;">Thanks for your order, ${name}!</h1>
+        <p style="font-size: 14px; color: #57534e;">Order #${orderId.slice(0, 8)} has been received and is now pending confirmation.</p>
+
+        <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+          <thead>
+            <tr>
+              <th style="text-align:left; font-size: 12px; color: #a8a29e; padding-bottom: 8px;">ITEM</th>
+              <th style="text-align:center; font-size: 12px; color: #a8a29e; padding-bottom: 8px;">QTY</th>
+              <th style="text-align:right; font-size: 12px; color: #a8a29e; padding-bottom: 8px;">PRICE</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRows}
+          </tbody>
+        </table>
+
+        <div style="display:flex; justify-content: space-between; margin-top: 20px; font-size: 16px; font-weight: 700;">
+          <span>Total</span>
+          <span>${formatINR(total)}</span>
+        </div>
+
+        <p style="font-size: 12px; color: #a8a29e; margin-top: 32px;">
+          We'll send another email when your order ships. Reply to this email if you have any questions.
+        </p>
+      </div>
+    `;
+
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${resendApiKey}`,
+      },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: [email],
+        subject: `Your Shelfie order #${orderId.slice(0, 8)} is confirmed`,
+        html,
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      return new Response(JSON.stringify({ error: `Resend API error: ${text}` }), {
+        status: res.status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});
